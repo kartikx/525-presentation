@@ -25,6 +25,12 @@ section.outlier-slide li {
 }
 </style>
 
+# WLB-LLM: Workload-Balanced 4D Parallelism for Large Language Model Training
+*Zheng Wang, Anna Cai, Xinfeng Xie, Zaifeng Pan, Yue Guan, Weiwei Chu, Jie Wang, Shikai Li, Jianyu Huang, Chris Cai, Yuchen Hao, Yufei Ding*
+<!-- _footer: "Kartik Ramesh" -->
+
+---
+
 # Introduction
 - Llama 3.1 405B trained over 16k GPUs for 30M H100 hours.
 - Using AWS H100 pricing **$212M**.
@@ -93,12 +99,12 @@ $$
 - Not a huge problem, but every millisecond adds up!
 ![bg right:30% contain](attachments/cp-imbalance.png)
 
----
+<!-- ---
   - show figure 3
       - 3a motivates that there is a lot of variance in the input document size. long inputs can cause workload imbalance.
       - 3b motivates that absolute token position is actually a bad proxy for computation intensity.
           - perhaps a better metric might have been average in-document prefix length, since that is the one that matters.
-          - look at their presentation, if available to see how they argue.
+          - look at their presentation, if available to see how they argue. -->
 ---
 # Baseline: Attention-Aware packing.
 **Idea**: Divide $B$ into $\mu$B by estimating $d_i^2$ as attention cost for each document.
@@ -234,6 +240,20 @@ Which optimization helps us the most?
 
 # Ablation - CP Sharding
 ![](attachments/fig-15.png)
+
+---
+# Discussion & Critique
+**Strengths:**
+- Clear bottleneck identification with evidence and analysis.
+- Practical, deployable solution that demonstrates measurable gains.
+- Careful consideration of overheads and convergence.
+
+**Questions:**
+- Larger models show smaller relative gains due to communication overhead, do gains vanish at extreme scale?
+- How does this approach scale to MoE models?
+
+**Key Takeaway**
+Batch compute, not tokens.
 
 <!-- --- -->
 <!-- # Evaluation: Other Results
