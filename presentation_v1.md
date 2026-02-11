@@ -23,30 +23,68 @@ section.outlier-slide ul {
 section.outlier-slide li {
   margin: 0.08em 0;
 }
+
+section.two-col-critique .columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+  align-items: start;
+}
+
+section.two-col-critique h3 {
+  margin: 0 0 0.25em 0;
+}
+
+section.two-col-critique ul {
+  margin-top: 0.1em;
+  padding-left: 1.1em;
+}
+
+section.compact-related {
+  font-size: 28px;
+}
+
+section.compact-related h1 {
+  margin-bottom: 0.2em;
+}
+
+section.compact-related p {
+  margin: 0.2em 0 0.05em 0;
+}
+
+section.compact-related ul {
+  margin-top: 0.05em;
+  margin-bottom: 0.25em;
+  line-height: 1.12;
+}
+
+section.compact-related li {
+  margin: 0.04em 0;
+}
+
+section.title-slide footer {
+  position: absolute;
+  color: #9aa0a6;
+  font-size: 18px;
+  left: 6%;
+  right: auto;
+  bottom: 10% !important;
+}
 </style>
 
+<!-- _class: title-slide -->
+<!-- _footer: Kartik Ramesh -->
 # WLB-LLM: Workload-Balanced 4D Parallelism for Large Language Model Training
 *Zheng Wang, Anna Cai, Xinfeng Xie, Zaifeng Pan, Yue Guan, Weiwei Chu, Jie Wang, Shikai Li, Jianyu Huang, Chris Cai, Yuchen Hao, Yufei Ding*
-<!-- _footer: "Kartik Ramesh" -->
 
 ---
+<!-- _footer: "" -->
 
 # Introduction
 - Llama 3.1 405B trained over 16k GPUs for 30M H100 hours.
 - Using AWS H100 pricing **$212M**.
 - A 1.2x increase in training speed would have saved **$36M** in cloud costs.
-- WLLM is a work from Meta and UCSD, released ~6 months after their training Llama 3 that achieves this.
-
----
-
-# Background - Model Architecture
-Things to keep in mind:
-- Really big models, 405B = 910GB with 126 transformer blocks.
-- Self-Attention, a layer that enriches tokens in a sequence with other token information.
-- Feed-Forward, a linear matrix multiplication layer.
-
-![bg right:45% contain](background-model-architecture.png)
-
+- WLLB-LLM is a work from Meta and UCSD, released ~6 months after their training Llama 3 that achieves this.
 
 ---
 # Self Attention
@@ -74,6 +112,16 @@ Things to keep in mind:
 $$
 DP > PP > CP > TP
 $$
+
+---
+
+# Key Takeaways
+**Problem**: In long-context 4D training, token count is a weak proxy for compute; attention cost is highly non-uniform.
+- **Core idea #1 (PP)**: Reduce PP imbalance via attention-aware micro-batch packing.
+- **Core idea #2 (CP)**: Reduce CP imbalance via fine-grained per-document sharding.
+
+**Bottom line**: WLB-LLM improves training throughput ($\approx 1.23x$) without hurting convergence.
+
 ---
 # Motivation #1 - Pipeline Imbalance
 - Pipeline Parallelism splits $B$ into $N$ $\mu$B to hide delays.
@@ -86,7 +134,7 @@ $$
 # Motivation #1 - Pipeline Imbalance
 - Naive approach $\rightarrow$ split by tokens.
 - Each $\mu$B has uniform sequence length = $\texttt{CONTEXT\_WINDOW\_SIZE}$
-- Does this lead to equal attention?
+- Does this balance LLM workload?
 - $k.128^2 >> k.128 * 1^2$
 
 ![bg right:40% contain](attachments/pp-docs-1.png)
@@ -96,7 +144,7 @@ $$
 - Workload across CP workers should be balanced.
 - After packing, split the sequence into $2.CP$ parts and assign one from front and one from back to balance attention.
 - Good heuristic, fails for multiple packed documents. Common in long context training.
-- Not a huge problem, but every millisecond adds up!
+- Every small delay adds up to higher-order delays.
 ![bg right:30% contain](attachments/cp-imbalance.png)
 
 <!-- ---
@@ -109,7 +157,7 @@ $$
 # Baseline: Attention-Aware packing.
 **Idea**: Divide $B$ into $\mu$B by estimating $d_i^2$ as attention cost for each document.
 
-- It works, but limited balancing improvemnts $\rightarrow$ limited speedup.
+- It works, but limited balancing improvements $\rightarrow$ limited speedup.
 - Higher balancing across $\mu$B requires balancing across multiple global $B$. This disturbs the random order of training and loss convergence.
 - It might be impossible to come up with such a $\mu$B construction, if there are no candidates.
 
@@ -136,6 +184,7 @@ $\min \left( \max \left( \sum_{i=1}^{N} \big( W_a(x_{ij} \cdot d_i) + W_l(x_{ij}
 - Observe: there aren't that many ultra-long documents.
 - Instead of balancing across multiple batches, delay the few long documents.
 ![bg right:25% contain](attachments/docs-length.png)
+- Model convergence should not hurt significantly.
 <!-- - Key observation: such long documents are not that frequent. Let's delay them.
     - Suppose you are trying to form N micro-batches on every iteration.
     - Use a single queue, that holds documents that are greater than a threshold L1. (outlier)
@@ -143,22 +192,22 @@ $\min \left( \max \left( \sum_{i=1}^{N} \big( W_a(x_{ij} \cdot d_i) + W_l(x_{ij}
     - When this queue reaches a size N, pop each document and spread it across the N micro-batches.
     - This ensures no single micro-batch has an outlier.
     - Extend this to a multi-queue with various outlier lengths: L1, L2, .. , Ln. -->
-- Model convergence should not hurt significantly.
 <!-- - Figure 8. highlights this well. -->
 
 <div style="position:absolute; left:3%; right:3%; bottom:5%; height:9%; display:flex; justify-content:center; align-items:center;">
   <img src="attachments/outlier-queue.png" style="display:block; width:100%; height:100%; object-fit:contain;" />
 </div>
 
----
+<!-- ---
 # Main Algorithm
-Given a DP bach
-- construct a document set by removing the outlier documents, filling from the queue, and rolling over any documents from the previous iteration.
+**TODO @kartik fix the presentation of this.**
+Given a DP batch
+- Construct a document set by removing the outlier documents, popping from the queue, and rolling over any documents from the previous iteration.
 - now you effectively have a set of documents that you solved for using an ILP in S3.3, however they claim that it would take too long.
 - so they instead pack greedily into an array of N micro-batches. sort the documents in reverse by length, and for each document:
     - find the least loaded microbatch (first by load, next by length)
     - if it can fit this current document, great.
-    - else reserve this document for a later stage.
+    - else reserve this document for a later stage. -->
 
 <!-- ![bg contain](attachments/main-algo.png) -->
 
@@ -176,16 +225,16 @@ Given a DP bach
 ---
 
 # Kernel inefficiencies
-- Per-Document sharding achieves better balance, but it does not guarantee better performance.
-- The attention kernel might become less efficient for smaller documents.
-- Sharding lowers the $Q$ dimension, which might cause:
-  - Longer kernel time due to redundant computations (padding $<128$ tokens)
-  - Decreased throughput (unable to leverage TMA)
+- Per-Document sharding achieves better balance, but it does not always guarantee better performance.
+- Smaller per-rank attention problems reduce kernel efficiency:
+  - Poor tile utilization → padding overhead for short sequences (<128 tokens).
+  - Lower effective FLOPs utilization → higher time per token.
+  - Reduced KV tile reuse → weaker Hopper TMA multicast benefits
 
 $$\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}\right)V$$
 
 ---
-# Kernel Inefficiences
+# Kernel Inefficiencies
 
 <div style="position:absolute; left:6%; right:6%; top:18%; bottom:8%; display:flex; justify-content:center; align-items:center;">
   <img src="attachments/kernels.png" style="max-width:100%; max-height:100%; object-fit:contain;" />
@@ -193,15 +242,20 @@ $$\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\left(\frac{QK^\top}{\sqrt{d_k}}
 
 ---
 
-# Evaluation
-- their contributions are in PP and CP balancing. Let's think, when would PP and CP imbalance hurt most?
-    - CP: longer context, more chance of long document being assigned to imbalanced worker.
-    - PP: larger model, micro-batch imbalance adds more to the latency.
+# Experimental Setup
+- **Cluster**: 32 nodes, each with 8x NVIDIA H100 SXM 80GB GPUs.
+- **Interconnect**: NVLink intra-node, RoCE inter-node.
+- **Models**: LLaMA-like 550M, 7B, 30B, 70B; each tested at 64K and 128K context.
+- **Training config**: 4D parallelism, global batch size = `PP_size x DP_size`, `bfloat16` precision.
+- **Baselines**:
+  - `Plain-4D`: default 4D training with per-sequence CP sharding.
+  - `Fixed-4D`: fixed-length packing + fixed CP sharding (per-sequence or per-document).
 
 ---
 
 # Speedup Breakdown
 ![bg right:45% contain](attachments/fig-13.png)
+<!-- Kartik note: annotate bars to highlight PP var-len + outlier delay as the largest contributor (1.28x), and final combined gain (~1.33x). -->
 
 Which optimization helps us the most?
 
@@ -213,47 +267,72 @@ Which optimization helps us the most?
 
 # Speedup across Model + Context
 
-<div style="position:absolute; left:5%; right:5%; top:18%; bottom:6%; display:flex; justify-content:center; align-items:center;">
+<div style="position:absolute; left:5%; right:5%; top:18%; bottom:30%; display:flex; justify-content:center; align-items:center;">
   <img src="attachments/fig-12.png" style="max-width:100%; max-height:100%; object-fit:contain;" />
 </div>
+<!-- Kartik note: annotate the two main trends: larger context => larger gains; larger models => slightly smaller relative gains due to communication overhead. -->
 
-<!-- --- -->
-<!-- # Evaluation: Figure 12 Notes
-
-1. Longer context model $\rightarrow$ more speedup.
-2. 
-    - but, larger models see lesser improvement over baseline (why?)
-        - This is because larger models involve more GPUs for training, which increases the ratio of communication latency to computation latency
-        - making the impact of workload imbalance in the attention layer less significant.
-    - fixed-4d does not give significant performance improvement over plain-4d.
-        - however, i feel like they should have accounted for mlp in fixed-4d as well. -->
+- WLB-LLM consistently outperforms baseline for all tested configurations.
+- Naive attention balancing is insufficient.
+- Relative speedup decreases with increased model size.
 
 ---
-# Speedup vs Context Window
-![](attachments/fig-14.png)
+# Other Experiments (Summary)
+- **Context sensitivity (Fig. 14)**: Speedup increases with context length (about `1.07x @64K` to `1.40x @160K` on 7B), consistent with worse imbalance at longer contexts.
+- **Packing overhead vs balance (Table 2)**: WLB-LLM reaches near-optimal imbalance with low runtime overhead (tens of ms), while solver-based packing can be prohibitively slow.
+- **CP sharding ablation (Fig. 15)**: Adaptive sharding consistently outperforms always-per-sequence or always-per-document sharding.
+- **Convergence / quality**: Their training-loss curves indicate no clear quality regression from the system optimizations.
 
 ---
-# Ablation - Packing Overhead
-![height:500](attachments/table-2.png)
-
----
-
-# Ablation - CP Sharding
-![](attachments/fig-15.png)
-
----
+<!-- _class: two-col-critique -->
 # Discussion & Critique
-**Strengths:**
-- Clear bottleneck identification with evidence and analysis.
-- Practical, deployable solution that demonstrates measurable gains.
-- Careful consideration of overheads and convergence.
+<div class="columns">
+  <div>
+    <h3>Strengths</h3>
+    <ul>
+      <li>Identifies and fixes a bottleneck for training long-context Llama models with 4D parallelism.</li>
+      <li>Joint PP+CP optimization gives meaningful real-system gains, especially as context windows grow.</li>
+      <li>Engineering is practical: low overhead and no obvious convergence regression in their reported runs.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>Weaknesses</h3>
+    <ul>
+      <li>Workload dependence and limited generalization evidence outside their evaluated distribution.</li>
+      <li>Strong dependence on a small number of extreme outliers; unclear benefit when length distributions are flatter.</li>
+      <li>Heavy use of heuristics (packing + sharding selection) without strong guarantees in worst-case settings.</li>
+    </ul>
+  </div>
+</div>
 
-**Questions:**
-- Larger models show smaller relative gains due to communication overhead, do gains vanish at extreme scale?
-- How does this approach scale to MoE models?
+---
+<!-- _class: compact-related -->
+# Related Work
+**(1) Efficient Long-context Language Model Training by Core Attention Disaggregation (DistCA)**
+- Split out “core attention” ($\mathrm{softmax}(QK^\top)V$) as a weightless compute service, separate from the rest of the transformer.
+- Better than WLB-style baselines at scale: reports ~1.15–1.35× throughput gains over their WLB “ideal” baseline in 4D (with PP), depending on workload.
 
-**Key Takeaway**
-Batch compute, not tokens.
+
+**(2) ByteScale Efficient Scaling of LLM Training with a 2048K Context Length on More Than 12,000 GPUs**
+- Hybrid Data Parallelism (HDP): unify DP + CP into one dynamic device mesh. 
+* Length-aware sharding: use the minimum number of devices per sequence.
+* Short sequences stay local (skip CP comm), long sequences shard across more GPUs. 
+
+**(3) Ordering efficiency**
+- Reduce pipeline bubbles by optimizing scheduling.
+- PipeDream, 1F1B, Seq1F1B.
+
+---
+# What did you think?
+**Problem**: In long-context 4D training, token count is a weak proxy for compute; attention cost is highly non-uniform.
+- **Core idea #1 (PP)**: Reduce PP imbalance via attention-aware micro-batch packing.
+- **Core idea #2 (CP)**: Reduce CP imbalance via fine-grained per-document sharding.
+
+**Bottom line**: WLB-LLM improves training throughput ($\approx 1.23x$) without hurting convergence.
+
+---
+![bg contain](attachments/table-2.png)
+
 
 <!-- --- -->
 <!-- # Evaluation: Other Results
